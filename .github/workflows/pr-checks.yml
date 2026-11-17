@@ -1,0 +1,69 @@
+name: PR Checks & Security Scan
+
+on:
+  pull_request:
+    branches: [ main ]
+
+jobs:
+  lint-and-test:
+    name: Code Lint & Unit Tests
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: "pip"
+          cache-dependency-path: app/requirements.txt
+
+      - name: Install dependencies
+        run: pip install -r app/requirements.txt
+
+      - name: Run Flake8 Linter
+        run: flake8 app/ --max-line-length=120
+
+      - name: Run Pytest with Coverage
+        run: pytest app/ --cov=app --cov-report=term-missing -p no:cacheprovider
+
+  dockerfile-and-shell-lint:
+    name: Hadolint & ShellCheck
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Lint Dockerfile with Hadolint
+        uses: hadolint/hadolint-action@v3.1.0
+        with:
+          dockerfile: Dockerfile
+
+      - name: Lint Shell Scripts with ShellCheck
+        run: |
+          if [ -d "scripts" ] && [ -n "$(ls -A scripts/*.sh 2>/dev/null)" ]; then
+            shellcheck scripts/*.sh
+          else
+            echo "No shell scripts found yet."
+          fi
+
+  container-security-scan:
+    name: Build & Trivy Vulnerability Scan
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Build Docker image for scanning
+        run: docker build -t devops-assessment-app:pr-${{ github.sha }} .
+
+      - name: Run Trivy vulnerability scanner
+        uses: aquasecurity/trivy-action@0.28.0
+        with:
+          image-ref: devops-assessment-app:pr-${{ github.sha }}
+          format: "table"
+          exit-code: "1"
+          ignore-unfixed: true
+          vuln-type: "os,library"
+          severity: "CRITICAL"

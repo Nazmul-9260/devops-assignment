@@ -1,0 +1,9 @@
+__pycache__
+*.pyc
+.git
+.github
+terraform
+k8s
+monitoring
+scripts
+README.md

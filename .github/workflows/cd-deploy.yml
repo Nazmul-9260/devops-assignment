@@ -1,0 +1,121 @@
+name: Build, Push & Deploy to Production
+
+on:
+  push:
+    branches: [ main ]
+
+env:
+  REGISTRY: ghcr.io
+  IMAGE_NAME: ${{ github.repository }}
+  APP_VERSION: "1.0.0"
+
+jobs:
+  build-and-push:
+    name: Multi-Arch Build & Push to GHCR
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    outputs:
+      image_tag: ${{ steps.meta.outputs.version }}
+      full_image: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up QEMU (for multi-arch builds)
+        uses: docker/setup-qemu-action@v3
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to GitHub Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Extract Docker metadata (SHA & SemVer tags)
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
+          tags: |
+            type=sha,prefix=sha-,format=short
+            type=raw,value=${{ env.APP_VERSION }}
+
+      - name: Build and push multi-arch Docker image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          platforms: linux/amd64,linux/arm64
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+  deploy-and-verify:
+    name: Deploy with Smoke Test & Auto-Rollback
+    needs: build-and-push
+    runs-on: ubuntu-latest
+    # Runs only when EC2_HOST secret is configured in repository settings
+    if: ${{ vars.ENABLE_DEPLOY == 'true' }}
+    steps:
+      - name: Deploy via SSH with Health Check & Rollback
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.EC2_HOST }}
+          username: ${{ secrets.EC2_USER }}
+          key: ${{ secrets.EC2_SSH_KEY }}
+          script: |
+            set -e
+            IMAGE="${{ needs.build-and-push.outputs.full_image }}"
+            NEW_TAG="${{ needs.build-and-push.outputs.image_tag }}"
+            CONTAINER_NAME="devops-web-app"
+
+            # Save currently running image tag for rollback
+            PREV_IMAGE=$(docker inspect --format='{{.Config.Image}}' $CONTAINER_NAME 2>/dev/null || echo "")
+            echo "Previous image: ${PREV_IMAGE:-none}"
+            echo "Deploying new image: ${IMAGE}:${NEW_TAG}"
+
+            docker pull "${IMAGE}:${NEW_TAG}"
+            docker stop $CONTAINER_NAME 2>/dev/null || true
+            docker rm $CONTAINER_NAME 2>/dev/null || true
+
+            docker run -d \
+              --name $CONTAINER_NAME \
+              --restart unless-stopped \
+              -p 8080:8080 \
+              -e APP_ENV=production \
+              -e APP_VERSION="${{ env.APP_VERSION }}" \
+              "${IMAGE}:${NEW_TAG}"
+
+            # Smoke Test against /health
+            echo "Running smoke test..."
+            HEALTHY=false
+            for i in {1..10}; do
+              if curl -sf http://localhost:8080/health | grep -q "healthy"; then
+                HEALTHY=true
+                break
+              fi
+              sleep 2
+            done
+
+            if [ "$HEALTHY" = true ]; then
+              echo "Smoke test passed! Deployment successful."
+            else
+              echo "Smoke test FAILED! Initiating automatic rollback..."
+              docker stop $CONTAINER_NAME 2>/dev/null || true
+              docker rm $CONTAINER_NAME 2>/dev/null || true
+              if [ -n "$PREV_IMAGE" ]; then
+                docker run -d \
+                  --name $CONTAINER_NAME \
+                  --restart unless-stopped \
+                  -p 8080:8080 \
+                  "$PREV_IMAGE"
+                echo "Rolled back to $PREV_IMAGE"
+              fi
+              exit 1
+            fi
