@@ -12,7 +12,7 @@ env:
 jobs:
   build-and-push:
     name: Multi-Arch Build & Push to GHCR
-    runs-on: ubuntu-latest
+    runs-on: self-hosted  # <--- এখানে ubuntu-latest এর বদলে self-hosted দিলাম
     permissions:
       contents: read
       packages: write
@@ -49,7 +49,7 @@ jobs:
         uses: docker/build-push-action@v6
         with:
           context: .
-          platforms: linux/amd64,linux/arm64
+          platforms: linux/amd64
           push: true
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
@@ -59,63 +59,56 @@ jobs:
   deploy-and-verify:
     name: Deploy with Smoke Test & Auto-Rollback
     needs: build-and-push
-    runs-on: ubuntu-latest
-    # Runs only when EC2_HOST secret is configured in repository settings
-    if: ${{ vars.ENABLE_DEPLOY == 'true' }}
+    runs-on: self-hosted  # <--- এখানেও self-hosted দিলাম
     steps:
-      - name: Deploy via SSH with Health Check & Rollback
-        uses: appleboy/ssh-action@v1.0.3
-        with:
-          host: ${{ secrets.EC2_HOST }}
-          username: ${{ secrets.EC2_USER }}
-          key: ${{ secrets.EC2_SSH_KEY }}
-          script: |
-            set -e
-            IMAGE="${{ needs.build-and-push.outputs.full_image }}"
-            NEW_TAG="${{ needs.build-and-push.outputs.image_tag }}"
-            CONTAINER_NAME="devops-web-app"
+      - name: Deploy Locally with Health Check & Rollback
+        run: |
+          set -e
+          IMAGE="${{ needs.build-and-push.outputs.full_image }}"
+          NEW_TAG="${{ needs.build-and-push.outputs.image_tag }}"
+          CONTAINER_NAME="devops-web-app"
 
-            # Save currently running image tag for rollback
-            PREV_IMAGE=$(docker inspect --format='{{.Config.Image}}' $CONTAINER_NAME 2>/dev/null || echo "")
-            echo "Previous image: ${PREV_IMAGE:-none}"
-            echo "Deploying new image: ${IMAGE}:${NEW_TAG}"
+          # Save currently running image tag for rollback
+          PREV_IMAGE=$(docker inspect --format='{{.Config.Image}}' $CONTAINER_NAME 2>/dev/null || echo "")
+          echo "Previous image: ${PREV_IMAGE:-none}"
+          echo "Deploying new image: ${IMAGE}:${NEW_TAG}"
 
-            docker pull "${IMAGE}:${NEW_TAG}"
+          docker pull "${IMAGE}:${NEW_TAG}"
+          docker stop $CONTAINER_NAME 2>/dev/null || true
+          docker rm $CONTAINER_NAME 2>/dev/null || true
+
+          docker run -d \
+            --name $CONTAINER_NAME \
+            --restart unless-stopped \
+            -p 8080:8080 \
+            -e APP_ENV=production \
+            -e APP_VERSION="${{ env.APP_VERSION }}" \
+            "${IMAGE}:${NEW_TAG}"
+
+          # Smoke Test against /health
+          echo "Running smoke test..."
+          HEALTHY=false
+          for i in {1..10}; do
+            if curl -sf http://localhost:8080/health | grep -q "healthy"; then
+              HEALTHY=true
+              break
+            fi
+            sleep 2
+          done
+
+          if [ "$HEALTHY" = true ]; then
+            echo "Smoke test passed! Deployment successful."
+          else
+            echo "Smoke test FAILED! Initiating automatic rollback..."
             docker stop $CONTAINER_NAME 2>/dev/null || true
             docker rm $CONTAINER_NAME 2>/dev/null || true
-
-            docker run -d \
-              --name $CONTAINER_NAME \
-              --restart unless-stopped \
-              -p 8080:8080 \
-              -e APP_ENV=production \
-              -e APP_VERSION="${{ env.APP_VERSION }}" \
-              "${IMAGE}:${NEW_TAG}"
-
-            # Smoke Test against /health
-            echo "Running smoke test..."
-            HEALTHY=false
-            for i in {1..10}; do
-              if curl -sf http://localhost:8080/health | grep -q "healthy"; then
-                HEALTHY=true
-                break
-              fi
-              sleep 2
-            done
-
-            if [ "$HEALTHY" = true ]; then
-              echo "Smoke test passed! Deployment successful."
-            else
-              echo "Smoke test FAILED! Initiating automatic rollback..."
-              docker stop $CONTAINER_NAME 2>/dev/null || true
-              docker rm $CONTAINER_NAME 2>/dev/null || true
-              if [ -n "$PREV_IMAGE" ]; then
-                docker run -d \
-                  --name $CONTAINER_NAME \
-                  --restart unless-stopped \
-                  -p 8080:8080 \
-                  "$PREV_IMAGE"
-                echo "Rolled back to $PREV_IMAGE"
-              fi
-              exit 1
+            if [ -n "$PREV_IMAGE" ]; then
+              docker run -d \
+                --name $CONTAINER_NAME \
+                --restart unless-stopped \
+                -p 8080:8080 \
+                "$PREV_IMAGE"
+              echo "Rolled back to $PREV_IMAGE"
             fi
+            exit 1
+          fi
