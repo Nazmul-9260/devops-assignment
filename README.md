@@ -47,6 +47,8 @@ python_gc_objects_uncollectable_total{generation="0"} 0.0
 python_gc_objects_uncollectable_total{generation="1"} 0.0
 python_gc_objects_uncollectable_total{generation="2"} 0.0
 
+cd-deploy.yml  complete
+connec runner in my desktop 
 
 
 
