@@ -71,6 +71,10 @@ jobs:
             -e APP_VERSION="${{ env.APP_VERSION }}" \
             "${IMAGE}:${NEW_TAG}"
 
+          # Wait 3 seconds for the application to fully initialize
+          echo "Waiting for container to initialize..."
+          sleep 3
+
           # Smoke Test against /health
           echo "Running smoke test..."
           HEALTHY=false
