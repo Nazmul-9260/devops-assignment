@@ -79,11 +79,11 @@ jobs:
           CONTAINER_IP=$(docker inspect -f '{{range .NetworkSettings.Networks}}{{.IPAddress}}{{end}}' $CONTAINER_NAME)
           echo "Container IP: $CONTAINER_IP"
 
-          # Smoke Test against /health with extended retries
+          # Smoke Test against Container IP directly with extended retries
           echo "Running smoke test..."
           HEALTHY=false
           for i in {1..15}; do
-            if curl -sf http://localhost:8080/health | grep -q "healthy"; then
+            if curl -sf http://$CONTAINER_IP:8080/health | grep -q "healthy"; then
               HEALTHY=true
               break
             fi
