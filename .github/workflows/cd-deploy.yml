@@ -5,17 +5,14 @@ on:
     branches: [ main ]
 
 env:
-  REGISTRY: ghcr.io
-  IMAGE_NAME: ${{ github.repository }}
+  REGISTRY: localhost:5000
+  IMAGE_NAME: devops-assessment-app
   APP_VERSION: "1.0.0"
 
 jobs:
   build-and-push:
-    name: Multi-Arch Build & Push to GHCR
-    runs-on: self-hosted  # <--- এখানে ubuntu-latest এর বদলে self-hosted দিলাম
-    permissions:
-      contents: read
-      packages: write
+    name: Build & Push to Local Registry
+    runs-on: self-hosted
     outputs:
       image_tag: ${{ steps.meta.outputs.version }}
       full_image: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
@@ -23,18 +20,10 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Set up QEMU (for multi-arch builds)
-        uses: docker/setup-qemu-action@v3
-
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
-
-      - name: Log in to GitHub Container Registry
-        uses: docker/login-action@v3
         with:
-          registry: ${{ env.REGISTRY }}
-          username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
+          driver: docker
 
       - name: Extract Docker metadata (SHA & SemVer tags)
         id: meta
@@ -45,21 +34,18 @@ jobs:
             type=sha,prefix=sha-,format=short
             type=raw,value=${{ env.APP_VERSION }}
 
-      - name: Build and push multi-arch Docker image
+      - name: Build and push Docker image
         uses: docker/build-push-action@v6
         with:
           context: .
-          platforms: linux/amd64
           push: true
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
 
   deploy-and-verify:
     name: Deploy with Smoke Test & Auto-Rollback
     needs: build-and-push
-    runs-on: self-hosted  # <--- এখানেও self-hosted দিলাম
+    runs-on: self-hosted
     steps:
       - name: Deploy Locally with Health Check & Rollback
         run: |
