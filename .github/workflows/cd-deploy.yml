@@ -71,38 +71,45 @@ jobs:
             -e APP_VERSION="${{ env.APP_VERSION }}" \
             "${IMAGE}:${NEW_TAG}"
 
-          # Wait 5 seconds for the application to initialize
+          # আপনার দেওয়া স্মোক টেস্ট কোডটি এখানে যুক্ত করা হয়েছে
           echo "Waiting for container to initialize..."
-          sleep 5
+          sleep 3  # কন্টেইনার পুরোপুরি রুট রেডি হওয়ার জন্য ৩ সেকেন্ড সময় দেওয়া হলো
 
-          # Smoke Test against /health with extended retries
-          echo "Running smoke test..."
-          HEALTHY=false
-          for i in {1..15}; do
-            if curl -sf http://localhost:8080/health | grep -q "healthy"; then
-              HEALTHY=true
-              break
-            fi
-            echo "Attempt $i: Health check not ready yet, retrying in 2 seconds..."
-            sleep 2
+          MAX_ATTEMPTS=15
+          RETRY_DELAY=2
+          SUCCESS=false
+
+          for ((i=1; i<=MAX_ATTEMPTS; i++)); do
+              # সরাসরি পোর্টের সঠিক ইউআরএল (port 8080) চেক করা হচ্ছে এবং HTTP Status Code নেওয়া হচ্ছে
+              HTTP_STATUS=$(curl -s -o /dev/null -w "%{http_code}" http://localhost:8080/health)
+
+              if [ "$HTTP_STATUS" -eq 200 ]; then
+                  echo "Attempt $i: Health check PASSED! (Status 200 received)"
+                  SUCCESS=true
+                  break
+              else
+                  echo "Attempt $i: Health check not ready yet (Status: $HTTP_STATUS), retrying in $RETRY_DELAY seconds..."
+                  sleep $RETRY_DELAY
+              fi
           done
 
-          if [ "$HEALTHY" = true ]; then
-            echo "Smoke test passed! Deployment successful."
-          else
-            echo "Smoke test FAILED! Printing container logs for debugging:"
-            docker logs $CONTAINER_NAME || true
+          # যদি ১৫ বারের মধ্যেও পাস না করে, তবে রুলব্যাক ট্রিগার করবে
+          if [ "$SUCCESS" = false ]; then
+              echo "Smoke test FAILED! Printing container logs for debugging:"
+              docker logs $CONTAINER_NAME || true
 
-            echo "Initiating automatic rollback..."
-            docker stop $CONTAINER_NAME 2>/dev/null || true
-            docker rm $CONTAINER_NAME 2>/dev/null || true
-            if [ -n "$PREV_IMAGE" ]; then
-              docker run -d \
-                --name $CONTAINER_NAME \
-                --restart unless-stopped \
-                -p 8080:8080 \
-                "$PREV_IMAGE"
-              echo "Rolled back to $PREV_IMAGE"
-            fi
-            exit 1
+              echo "Initiating automatic rollback..."
+              docker stop $CONTAINER_NAME 2>/dev/null || true
+              docker rm $CONTAINER_NAME 2>/dev/null || true
+              if [ -n "$PREV_IMAGE" ]; then
+                docker run -d \
+                  --name $CONTAINER_NAME \
+                  --restart unless-stopped \
+                  -p 8080:8080 \
+                  "$PREV_IMAGE"
+                echo "Rolled back to $PREV_IMAGE"
+              fi
+              exit 1
           fi
+
+          echo "Smoke test completed successfully!"
