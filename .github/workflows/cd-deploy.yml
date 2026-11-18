@@ -93,6 +93,14 @@ jobs:
 
           if [ "$HEALTHY" = true ]; then
             echo "Smoke test passed! Deployment successful."
+
+            # Cleanup old local registry images, keeping only the latest 3
+            echo "Cleaning up old Docker images (keeping latest 3)..."
+            docker images "localhost:5000/devops-assessment-app" --format "{{.ID}} {{.CreatedAt}}" | \
+              sort -r -k2 | \
+              awk 'NR > 3 {print $1}' | \
+              xargs -r docker rmi || true
+
           else
             echo "Smoke test FAILED! Printing container logs for debugging:"
             docker logs $CONTAINER_NAME || true
