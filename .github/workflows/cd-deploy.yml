@@ -71,11 +71,11 @@ jobs:
             -e APP_VERSION="${{ env.APP_VERSION }}" \
             "${IMAGE}:${NEW_TAG}"
 
-          # Wait 3 seconds for the application to fully initialize
+          # Wait 5 seconds for the application to initialize
           echo "Waiting for container to initialize..."
           sleep 5
 
-          # Smoke Test against /health
+          # Smoke Test against /health with extended retries
           echo "Running smoke test..."
           HEALTHY=false
           for i in {1..15}; do
@@ -83,13 +83,17 @@ jobs:
               HEALTHY=true
               break
             fi
+            echo "Attempt $i: Health check not ready yet, retrying in 2 seconds..."
             sleep 2
           done
 
           if [ "$HEALTHY" = true ]; then
             echo "Smoke test passed! Deployment successful."
           else
-            echo "Smoke test FAILED! Initiating automatic rollback..."
+            echo "Smoke test FAILED! Printing container logs for debugging:"
+            docker logs $CONTAINER_NAME || true
+
+            echo "Initiating automatic rollback..."
             docker stop $CONTAINER_NAME 2>/dev/null || true
             docker rm $CONTAINER_NAME 2>/dev/null || true
             if [ -n "$PREV_IMAGE" ]; then
