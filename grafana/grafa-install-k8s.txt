@@ -1,0 +1,88 @@
+helm repo add prometheus-community https://prometheus-community.github.io/helm-charts
+helm repo update
+
+kubectl create namespace monitoring
+
+helm install prometheus-stack prometheus-community/kube-prometheus-stack \
+  --namespace monitoring \
+  --set grafana.service.type=LoadBalancer \
+  --set grafana.adminPassword='yourpassword'
+
+kubectl get pods,svc -n monitoring
+
+
+#using service  cluster 
+
+cat <<EOF > service.yaml
+grafana:
+  service:
+    type: ClusterIP
+EOF
+
+
+
+helm upgrade prometheus-stack prometheus-community/kube-prometheus-stack \
+  --namespace monitoring \
+  -f service.yaml \
+  --reuse-values
+
+#if  using Loadbalancer
+
+kubectl delete -f service.yaml
+ 
+
+cat <<EOF > values-loadbalancer.yaml
+grafana:
+  service:
+    type: LoadBalancer
+EOF
+
+
+#or 
+
+helm upgrade prometheus-stack prometheus-community/kube-prometheus-stack \
+  --namespace monitoring \
+  --set grafana.service.type=LoadBalancer \
+  --reuse-values
+
+
+# grafana-ingress.yaml
+
+cat <<EOF > grafana-ingress.yaml
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: grafana-ingress
+  namespace: monitoring
+  annotations:
+    kubernetes.io/ingress.class: "nginx"
+spec:
+  rules:
+    - host: grafana.example.com
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: prometheus-stack-grafana
+                port:
+                  number: 80
+EOF
+# i have already install in my server metallb service  
+
+
+
+# other server add in grafana - client PC(Must be install agent Nodeexporter)
+
+cat <<EOF > external-nodes-values.yaml
+prometheus:
+  prometheusSpec:
+    additionalScrapeConfigs:
+      - job_name: 'external-traditional-servers'
+        static_configs:
+          - targets: ['192.168.1.37:9100']
+            labels:
+              instance: 'Server-37'
+EOF
+

@@ -1,53 +1,30 @@
-# DevOps Engineer Technical Assessment
+# DevOps Engineer Candidate Assessment & Implementation Portfolio
 
-A production-ready, observable, and containerized web service deployed with a full CI/CD pipeline, Infrastructure as Code (Terraform), Kubernetes manifests, and a complete Prometheus/Grafana/Loki monitoring stack.
+This repository contains the end-to-end implementation, containerization, Kubernetes orchestration, infrastructure monitoring, and automated alerting system for the DevOps Engineer Technical Assessment.
 
 ---
 
-## 📂 Project Structure
+## 🏗️ Architecture & Tech Stack
 
-```text
-devops-assessment/
-├── app/
-│   ├── main.py              # FastAPI application (Endpoints, JSON logging, Metrics)
-│   ├── test_main.py         # Pytest unit tests
-│   └── requirements.txt     # Python dependencies
-├── .github/workflows/       # GitHub Actions CI/CD pipelines
-├── terraform/               # AWS Infrastructure as Code (EC2, IAM, S3 backend)
-├── k8s/                     # Kubernetes manifests, HPA, and ConfigMaps
-├── monitoring/              # Prometheus, Grafana, Loki, and Alloy configurations
-├── scripts/                 # Linux system health monitoring and log rotation script
-├── Dockerfile               # Multi-stage production-grade Dockerfile
-├── .dockerignore            # Files ignored during Docker build
-├── docker-compose.yml       # Local app and observability stack compose setup
-└── README.md                # Project documentation
+* **Orchestration & Containerization:** Kubernetes (`v1.37.1`), Docker, Docker Hub, Helm (`v3`).
+* **Observability & Monitoring:** Prometheus, Grafana, Alertmanager (`kube-prometheus-stack`), Node Exporter (`v1.8.2`).
+* **Networking & Security:** Nginx Ingress Controller, TLS 1.2+ (Self-Signed SSL), MetalLB / LoadBalancer service routing.
+* **Scripting & Automation:** Bash (Production telemetry scripts with JSON output and log rotation).
 
+---
 
-docker compose up -d --build
-docker compose ps
+## 🚀 Step-by-Step Implementation Guide
 
+### Step 1: Kubernetes Monitoring Stack (Prometheus & Grafana)
+Deployed the `kube-prometheus-stack` Helm chart inside the `monitoring` namespace to handle cluster metrics and observability.
 
-[nazmul@stg-mf-dcs ~]$ curl http://localhost:8080/
-{"message":"Hello from DevOps Task!","status":"running","version":"1.0.0"}[nazmul@stg-mf-dcs ~]$
+```bash
+helm repo add prometheus-community [https://prometheus-community.github.io/helm-charts](https://prometheus-community.github.io/helm-charts)
+helm repo update
 
-nazmul@stg-mf-dcs ~]$ curl http://localhost:8080/health
-{"status":"healthy"}[nazmul@stg-mf-dcs ~]$
+kubectl create namespace monitoring
 
-
-
-{"status":"healthy"}[nazmul@stg-mf-dcs ~]$ curl http://localhost:8080/metrics
-# HELP python_gc_objects_collected_total Objects collected during gc
-# TYPE python_gc_objects_collected_total counter
-python_gc_objects_collected_total{generation="0"} 1230.0
-python_gc_objects_collected_total{generation="1"} 21.0
-python_gc_objects_collected_total{generation="2"} 0.0
-# HELP python_gc_objects_uncollectable_total Uncollectable objects found during GC
-# TYPE python_gc_objects_uncollectable_total counter
-python_gc_objects_uncollectable_total{generation="0"} 0.0
-python_gc_objects_uncollectable_total{generation="1"} 0.0
-python_gc_objects_uncollectable_total{generation="2"} 0.0
-
-
-
-
-
+helm install prometheus-stack prometheus-community/kube-prometheus-stack \
+  --namespace monitoring \
+  --set grafana.service.type=LoadBalancer \
+  --set grafana.adminPassword='YourSecurePassword'

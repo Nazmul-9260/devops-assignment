@@ -1,0 +1,61 @@
+alertmanager:
+  config:
+    global:
+      resolve_timeout: 5m
+      smtp_smarthost: 'smtp.gmail.com:587'
+      smtp_from: 'nazmul9260@gmail.com'
+      smtp_auth_username: 'nazmul9260@gmail.com'
+      smtp_auth_password: ' '
+      smtp_require_tls: true
+
+    route:
+      group_by: ['alertname', 'instance']
+      group_wait: 30s
+      group_interval: 5m
+      repeat_interval: 1h
+      receiver: 'nazmul-email'
+      routes:
+        - receiver: 'nazmul-email'
+          matchers:
+            - severity =~ "warning|critical"
+
+    receivers:
+      - name: 'nazmul-email'
+        email_configs:
+          - to: 'nazmul9260@gmail.com'
+            send_resolved: true
+
+additionalPrometheusRulesMap:
+  custom-server-alerts:
+    groups:
+      - name: resource-and-uptime-alerts
+        rules:
+          # ১. সার্ভার বা এক্সপোর্টার ডাউন হলে (Instance Down)
+          - alert: InstanceDown
+            expr: up == 0
+            for: 1m
+            labels:
+              severity: critical
+            annotations:
+              summary: "🚨 Server Down: {{ $labels.instance }}"
+              description: "The target instance {{ $labels.instance }} (job: {{ $labels.job }}) has been unreachable for more than 1 minute."
+
+          # ২. মেমোরি ব্যবহার ৮৫%-এর বেশি হলে (High Memory Usage)
+          - alert: HighMemoryUsage
+            expr: (1 - (node_memory_MemAvailable_bytes / node_memory_MemTotal_bytes)) * 100 > 85
+            for: 2m
+            labels:
+              severity: warning
+            annotations:
+              summary: "⚠️ High Memory Usage on {{ $labels.instance }}"
+              description: "Memory usage has exceeded 85% (Current: {{ printf \"%.2f\" $value }}%)."
+
+          # ৩. সিপিইউ ব্যবহার ৯০%-এর বেশি হলে (High CPU Usage)
+          - alert: HighCPUUsage
+            expr: 100 - (avg by (instance) (rate(node_cpu_seconds_total{mode="idle"}[5m])) * 100) > 90
+            for: 2m
+            labels:
+              severity: warning
+            annotations:
+              summary: "⚠️ High CPU Usage on {{ $labels.instance }}"
+              description: "CPU usage has exceeded 90% (Current: {{ printf \"%.2f\" $value }}%)."

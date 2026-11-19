@@ -1,0 +1,1 @@
+*/5 * * * * /home/nazmul/devops-assessment/system_health/system_health.sh --json >> /home/nazmul/devops-assessment/system_health/cron.log 2>&1

@@ -1,0 +1,14 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: devops-assessment-service
+  namespace: devops-assessment
+spec:
+  type: NodePort #ClusterIP
+  selector:
+    app: devops-assessment
+  ports:
+  - protocol: TCP
+    port: 80
+    targetPort: 8080
+    nodePort: 30080
